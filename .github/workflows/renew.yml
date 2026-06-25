@@ -26,9 +26,11 @@ jobs:
       - name: Run Renew Script
         env:
           ACL_COOKIES: ${{ secrets.ACL_COOKIES }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python renew.py
 
-      # 新增：将生成的截图上传到 GitHub Actions 页面
+      # 将生成的截图上传到 GitHub Actions 页面
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         if: always() # 无论上面的脚本成功还是失败，都执行上传
