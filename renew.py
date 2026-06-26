@@ -58,7 +58,6 @@ def run(playwright):
     page = context.new_page()
 
     status_message = ""
-    is_in_detail_page = False # 标记是否已经进入了详情页
     
     try:
         print("正在访问项目面板...")
@@ -70,86 +69,68 @@ def run(playwright):
         page.screenshot(path="debug_page.png", full_page=True)
         print("截图保存成功: debug_page.png")
 
+        # 1. 寻找并点击续期按钮（严格精确匹配多语言文本）
         print("正在寻找续期按钮...")
-        # 【优化】使用正则严格精确匹配，防止包含类似字眼的文本干扰
-        target_selectors = [
-            "button:has-text(/^renew$/i)", "a:has-text(/^renew$/i)",
-            "button:has-text(/^renouveler$/i)", "a:has-text(/^renouveler$/i)",
-            "button:has-text(/^续期$/)", "a:has-text(/^续期$/)"
-        ]
+        renew_texts = ["Renew", "Renouveler maintenant", "续期"]
+        renew_clicked = False
         
-        renew_buttons = page.locator(", ".join(target_selectors))
-        count = renew_buttons.count()
+        for txt in renew_texts:
+            loc = page.get_by_text(txt, exact=True)
+            count = loc.count()
+            if count > 0:
+                print(f"找到 {count} 个精确文本为 '{txt}' 的续期元素，准备点击...")
+                for i in range(count):
+                    btn = loc.nth(i)
+                    if btn.is_visible():
+                        btn.click()
+                        renew_clicked = True
+                        print(f"已点击第 {i+1} 个续期按钮。")
+                        page.wait_for_timeout(5000)  # 等待请求处理
 
-        # 【优化】Manage 按钮同样改为精确匹配，防止误触
-        manage_selectors = [
-            "button:has-text(/^manage$/i)", "a:has-text(/^manage$/i)",
-            "button:has-text(/^管理$/)", "a:has-text(/^管理$/)"
-        ]
-
-        # 如果在列表页没找到续期按钮，尝试检查是不是需要点击 "Manage" 进入详情页
-        if count == 0:
-            manage_btn = page.locator(", ".join(manage_selectors)).first
-            if manage_btn.is_visible():
-                print("未在列表页找到续期按钮，但检测到 'Manage' 按钮。正在尝试进入服务器详情页...")
-                manage_btn.click()
-                page.wait_for_timeout(5000)  # 等待详情页/控制台加载
-                is_in_detail_page = True
-                
-                # 重新保存一张进入详情页后的截图方便排查
-                page.screenshot(path="debug_detail_page.png", full_page=True)
-                
-                # 重新获取详情页里的续期按钮
-                renew_buttons = page.locator(", ".join(target_selectors))
-                count = renew_buttons.count()
-
-        # 执行续期点击
-        if count == 0:
-            print("未找到任何续期按钮。可能还未到允许续期的系统时间（到期前2小时内）。")
-            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到任何续期按钮。可能还未到允许续期的系统时间。"
+        if renew_clicked:
+            status_message = "✅ *ACLClouds 自动续期成功*\n已成功点击续期按钮！"
         else:
-            print(f"找到 {count} 个续期元素，准备点击...")
-            for i in range(count):
-                button = renew_buttons.nth(i)
-                if button.is_visible():
-                    button.click()
-                    print(f"已点击第 {i+1} 个续期按钮。")
-                    page.wait_for_timeout(5000)
-            status_message = f"✅ *ACLClouds 自动续期成功*\n已成功点击续期按钮！"
+            print("当前页面未点到续期按钮（可能还未到续期时间）。")
+            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到或未触发任何续期按钮。"
 
-        # 如果刚才没有进详情页，但现在我们需要去检查服务器启动状态，就进一下详情页
-        if not is_in_detail_page:
-            manage_btn = page.locator(", ".join(manage_selectors)).first
-            if manage_btn.is_visible():
-                manage_btn.click()
-                page.wait_for_timeout(5000)
-                is_in_detail_page = True
+        # 2. 尝试点击 Manage 按钮进入详情控制台
+        #（如果上面点过续期，页面可能会刷新或跳转；如果没点过，我们也需要点 Manage 进去检查开机状态）
+        print("正在尝试定位进入详情页的 Manage 按钮...")
+        manage_texts = ["Manage", "管理"]
+        for txt in manage_texts:
+            loc = page.get_by_text(txt, exact=True)
+            if loc.count() > 0 and loc.first.is_visible():
+                print(f"检测到精确匹配的 '{txt}' 按钮，正在点击进入服务器详情页...")
+                loc.first.click()
+                page.wait_for_timeout(5000)  # 等待控制台页面完全加载
+                break
 
-        # ---- 核心修复：使用严格正则精确匹配 Start 按钮，完美避开左侧边栏的 Startup ----
-        if is_in_detail_page:
-            print("正在检查服务器运行状态...")
-            start_selectors = [
-                "button:has-text(/^start$/i)", "a:has-text(/^start$/i)",
-                "button:has-text(/^démarrer$/i)", "a:has-text(/^démarrer$/i)",
-                "button:has-text(/^启动$/)", "a:has-text(/^启动$/)"
-            ]
-            start_btn = page.locator(", ".join(start_selectors)).first
+        # 保存一张当前的最终页面状态截图
+        page.screenshot(path="debug_final_state.png", full_page=True)
+
+        # 3. 核心修复：精准检测并点击真正的 Start 按钮（完美避开 Startup 侧边栏）
+        print("正在检查服务器运行状态...")
+        start_texts = ["Start", "Démarrer", "启动"]
+        start_btn = None
+        
+        for txt in start_texts:
+            loc = page.get_by_text(txt, exact=True)
+            if loc.count() > 0 and loc.first.is_visible():
+                start_btn = loc.first
+                break
+
+        if start_btn:
+            print("检测到服务器当前处于离线状态，正在尝试点击精准的 'Start' 按钮...")
+            start_btn.click()
+            print("已点击启动按钮，等待 15 秒让服务器拉起...")
+            page.wait_for_timeout(15000)
             
-            # 只有当精准的 Start 按钮存在且可见时，才去点击
-            if start_btn.is_visible():
-                print("检测到服务器当前处于离线状态，正在尝试点击精准的 'Start' 按钮...")
-                start_btn.click()
-                print("已点击启动按钮，等待15秒让服务器拉起并刷新控制台...")
-                page.wait_for_timeout(15000) # 稍微多等几秒给网页反应时间
-                
-                # 再次保存开机后的截图
-                page.screenshot(path="debug_after_start.png", full_page=True)
-                status_message += "\n🚀 *服务器启动状态*: 检测到离线，已成功精准点击 `Start` 启动服务器！"
-            else:
-                print("未检测到开机按钮，服务器可能已经在运行中 (Online) 或按钮未正常加载。")
-                status_message += "\nℹ️ *服务器启动状态*: 未检测到开机按钮，服务器可能已经在运行中。"
+            # 再次保存开机成功后的控制台截图
+            page.screenshot(path="debug_after_start.png", full_page=True)
+            status_message += "\n🚀 *服务器启动状态*: 检测到离线，已成功精准点击 `Start` 启动服务器！"
         else:
-            status_message += "\n⚠️ *服务器启动状态*: 无法进入详情页，跳过开机检查。"
+            print("当前页面未检测到可见的开机按钮，服务器可能已经在运行中 (Online)。")
+            status_message += "\nℹ️ *服务器启动状态*: 未检测到开机按钮，服务器可能已经在运行中。"
 
         print("任务执行完毕。")
 
@@ -162,7 +143,7 @@ def run(playwright):
             pass
     finally:
         browser.close()
-        # 无论成功失败，最终发送通知
+        # 最终发送通知
         if status_message:
             send_telegram_notification(status_message)
 
