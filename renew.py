@@ -60,26 +60,26 @@ def run(playwright):
 
     status_message = ""
     try:
-        print("正在访问项目列表面...")
+        print("正在访问项目列表页...")
         page.goto("https://dash.aclclouds.com/projects", timeout=60000)
-        page.wait_for_timeout(6000) # 等待页面充分加载
+        page.wait_for_timeout(5000) 
 
         print("保存列表页初始截图...")
         page.screenshot(path="debug_1_projects_list.png", full_page=True)
 
         log_summary = []
 
-        # ================= 阶段 1：处理全屏挂起拦截（大蓝按钮） =================
+        # ================= 阶段 1：异常拦截大蓝按钮处理 =================
         suspended_btn = page.locator('button, a').filter(has_text=re.compile(r"Renouveler maintenant|Renew now", re.IGNORECASE))
         if suspended_btn.count() > 0 and suspended_btn.first.is_visible():
             print("🚨 状态判定：检测到全屏挂起拦截弹窗！正在点击大蓝按钮...")
             if suspended_btn.first.is_enabled():
                 suspended_btn.first.click(timeout=10000)
                 log_summary.append("⚠️ 检测到服务被动挂起，已点击大蓝按钮解锁")
-                page.wait_for_timeout(6000) # 等待页面刷新跳转回列表
+                page.wait_for_timeout(6000) 
                 page.screenshot(path="debug_2_after_blue_button.png", full_page=True)
 
-        # ================= 阶段 2：处理列表页面的【Reactivate】重新激活按钮 =================
+        # ================= 阶段 2：处理列表页面的【Reactivate】激活按钮 =================
         reactivate_buttons = page.locator('button, a').filter(has_text=re.compile(r"Reactivate", re.IGNORECASE))
         if reactivate_buttons.count() > 0:
             print(f"⚡ 状态判定：发现需要激活的 Reactivate 按钮！")
@@ -88,10 +88,10 @@ def run(playwright):
                 if btn.is_visible() and btn.is_enabled():
                     btn.click(timeout=10000)
                     log_summary.append("⚡ 成功点击 Reactivate 按钮重新激活服务")
-                    page.wait_for_timeout(6000) # 激活需要后台处理时间
+                    page.wait_for_timeout(6000) 
             page.screenshot(path="debug_3_after_reactivate.png", full_page=True)
 
-        # ================= 阶段 3：常规列表页续期检查（防止6小时到期前2小时的续期按钮在列表显示） =================
+        # ================= 阶段 3：常规列表页续期检查 =================
         renew_list_buttons = page.locator("button").filter(has_text=re.compile(r"^(Renew|Renouveler)$", re.IGNORECASE))
         if renew_list_buttons.count() > 0:
             for i in range(renew_list_buttons.count()):
@@ -101,41 +101,56 @@ def run(playwright):
                     log_summary.append("🔄 列表页常规窗口提前续期成功")
                     page.wait_for_timeout(3000)
 
-        # ================= 阶段 4【关键核心】：点击 Manage 进入控制台内部 =================
+        # ================= 阶段 4【核心重构】：点击 Manage 并智能追踪 SPA 渲染 =================
         manage_buttons = page.locator('button, a').filter(has_text=re.compile(r"Manage", re.IGNORECASE))
-        if manage_buttons.count() > 0:
-            print("🔍 正在点击 Manage 按钮进入服务器内部控制台...")
+        if manage_buttons.count() > 0 and manage_buttons.first.is_visible():
+            print("🔍 正在点击 Manage 按钮...")
+            old_pages_count = len(context.pages)
             manage_buttons.first.click(timeout=10000)
-            page.wait_for_timeout(6000) # 等待控制台页面完全加载
-            print("已成功进入控制台内部，保存控制台截图...")
-            page.screenshot(path="debug_4_console_internal.png", full_page=True)
+            page.wait_for_timeout(3000) # 稍微喘息，让浏览器识别路由切换
             
-            # 阶段 4.5：在控制台内部也扫描一次常规续期按钮（以防续期按钮只出现在控制台里）
-            renew_console_buttons = page.locator("button").filter(has_text=re.compile(r"^(Renew|Renouveler)$", re.IGNORECASE))
-            if renew_console_buttons.count() > 0 and renew_console_buttons.first.is_visible() and renew_console_buttons.first.is_enabled():
-                renew_console_buttons.first.click(timeout=5000)
-                log_summary.append("🔄 控制台内常规窗口提前续期成功")
-                page.wait_for_timeout(3000)
-
-            # ================= 阶段 5：在控制台内部统一检查并点亮【Start 启动】按钮 =================
-            # 精准匹配绿色的 Start 按钮
-            start_buttons = page.locator('button, a').filter(has_text=re.compile(r"Start", re.IGNORECASE))
-            if start_buttons.count() > 0 and start_buttons.first.is_visible():
-                if start_buttons.first.is_enabled():
-                    print("🚀 检测到服务器处于 Offline 熄火状态，正在点击 Start 启动拉起...")
-                    start_buttons.first.click(timeout=10000)
-                    log_summary.append("🚀 核心保活成功：成功点亮 Start 启动服务！")
-                    page.wait_for_timeout(5000) # 等待启动命令下发
-                else:
-                    print("🟢 服务器已经在正常运行中（Start按钮当前不可点），安全跳过。")
-                    log_summary.append("🟢 服务保持在线（无需运行启动）")
+            # 兼容层：防止平台以后又改成弹新标签页
+            if len(context.pages) > old_pages_count:
+                print("💡 检测到平台打开了新标签页，切换控制权...")
+                page = context.pages[-1]
             else:
-                print("⚠️ 未在控制台页面找到 Start 按钮，请检查控制台权限或结构。")
-        else:
-            print("❌ 未在项目列表找到 Manage 按钮，无法进入控制台！")
-            log_summary.append("❌ 任务异常：未找到进入控制台的 Manage 按钮")
+                print("💡 平台未开新页，正在进行单页应用（SPA）原地路由切换监控...")
 
-        # 保存最终完结截图
+            # ================= 阶段 5【高能核心】：智能死等 Start 按钮渲染 =================
+            print("⏳ [关键步骤] 正在高频检索并等待 Start 按钮渲染到屏幕上...")
+            start_button_locator = page.locator('button, a').filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
+            
+            try:
+                # 显式死等 25 秒，直到 JavaScript 把这个按钮画出来
+                start_button_locator.wait_for(state="visible", timeout=25000)
+                print("🎯 [成功] 终于在控制台页面抓到了动态渲染出来的 Start 按钮！")
+                page.screenshot(path="debug_4_console_loaded.png", full_page=True)
+
+                if start_button_locator.is_enabled():
+                    print("🚀 确认服务器当前处于 Offline 熄火状态，正在执行点击拉起...")
+                    start_button_locator.click(timeout=10000)
+                    page.wait_for_timeout(5000) # 等待指令下发完毕
+                    
+                    # 强力防吞二次兜底
+                    if start_button_locator.is_enabled():
+                        print("🔄 按钮依然亮着？可能被前端吞了，补点一脚！")
+                        start_button_locator.click(timeout=5000)
+                        page.wait_for_timeout(3000)
+                        
+                    log_summary.append("🚀 核心保活成功：已成功点亮 Start 启动服务器！")
+                else:
+                    print("🟢 Start 按钮当前为不可点击状态（灰掉），证明服务器本身已经是开启状态。")
+                    log_summary.append("🟢 服务器已在运行中（无需操作）")
+
+            except Exception as wait_err:
+                print(f"❌ 智能等待超时，在规定时间内页面未渲染出 Start 按钮。")
+                page.screenshot(path="debug_error_timeout.png", full_page=True)
+                log_summary.append("❌ 错误：进入控制台页面后未等到 Start 按钮出现")
+        else:
+            print("❌ 没在项目列表页找到可见的 Manage 按钮！")
+            log_summary.append("❌ 错误：未找到 Manage 按钮")
+
+        # 最终完结截图
         page.screenshot(path="debug_5_final.png", full_page=True)
 
         # ================= 阶段 6：组装结算通知 =================
