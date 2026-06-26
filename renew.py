@@ -68,22 +68,46 @@ def run(playwright):
         page.screenshot(path="debug_page.png", full_page=True)
         print("截图保存成功: debug_page.png")
 
-        renew_buttons = page.locator("text='Renew'")
+        print("正在寻找续期按钮...")
+        # 定义可能出现的续期按钮选择器（兼容未过期的英文列表、过期的法语控制台、以及中文情况）
+        target_selectors = [
+            "button:has-text('Renew')", "a:has-text('Renew')",
+            "button:has-text('Renouveler')", "a:has-text('Renouveler')",
+            "button:has-text('续期')", "a:has-text('续期')"
+        ]
+        
+        # 组合成复合选择器
+        renew_buttons = page.locator(", ".join(target_selectors))
         count = renew_buttons.count()
 
+        # 如果在列表页没找到续期按钮，尝试检查是不是需要点击 "Manage" 进入详情页
         if count == 0:
-            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到 'Renew' 按钮。可能是没有到期需要续期的项目。请检查 GitHub Actions 页面下载的截图确认状态。"
-            print("未找到 'Renew' 按钮。")
+            manage_btn = page.locator("button:has-text('Manage'), a:has-text('Manage'), button:has-text('管理'), a:has-text('管理')").first
+            if manage_btn.is_visible():
+                print("未在列表页找到续期按钮，但检测到 'Manage' 按钮。正在尝试进入服务器详情页...")
+                manage_btn.click()
+                page.wait_for_timeout(5000)  # 等待详情页/控制台加载
+                
+                # 重新保存一张进入详情页后的截图方便排查
+                page.screenshot(path="debug_detail_page.png", full_page=True)
+                
+                # 重新获取详情页里的续期按钮
+                renew_buttons = page.locator(", ".join(target_selectors))
+                count = renew_buttons.count()
+
+        if count == 0:
+            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到任何续期按钮。可能还未到允许续期的系统时间（到期前2小时内），或页面结构发生大变动。"
+            print("未找到续期按钮。")
         else:
-            print(f"找到 {count} 个 'Renew' 元素，准备点击...")
+            print(f"找到 {count} 个续期元素，准备点击...")
             clicked_count = 0
             for i in range(count):
                 button = renew_buttons.nth(i)
                 if button.is_visible():
                     button.click()
                     clicked_count += 1
-                    print(f"已点击第 {i+1} 个 Renew 按钮。")
-                    page.wait_for_timeout(3000) 
+                    print(f"已点击第 {i+1} 个续期按钮。")
+                    page.wait_for_timeout(5000)  # 点击后多等一会确保续期请求处理完毕
             
             page.screenshot(path="debug_page_after_click.png", full_page=True)
             status_message = f"✅ *ACLClouds 自动续期成功*\n检测到 {count} 个续期元素，已成功点击 {clicked_count} 个按钮！"
