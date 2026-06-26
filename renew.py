@@ -58,6 +58,8 @@ def run(playwright):
     page = context.new_page()
 
     status_message = ""
+    is_in_detail_page = False # 标记是否已经进入了详情页
+    
     try:
         print("正在访问项目面板...")
         page.goto("https://dash.aclclouds.com/projects", timeout=60000)
@@ -69,14 +71,13 @@ def run(playwright):
         print("截图保存成功: debug_page.png")
 
         print("正在寻找续期按钮...")
-        # 定义可能出现的续期按钮选择器（兼容未过期的英文列表、过期的法语控制台、以及中文情况）
+        # 定义可能出现的续期按钮选择器
         target_selectors = [
             "button:has-text('Renew')", "a:has-text('Renew')",
             "button:has-text('Renouveler')", "a:has-text('Renouveler')",
             "button:has-text('续期')", "a:has-text('续期')"
         ]
         
-        # 组合成复合选择器
         renew_buttons = page.locator(", ".join(target_selectors))
         count = renew_buttons.count()
 
@@ -87,6 +88,7 @@ def run(playwright):
                 print("未在列表页找到续期按钮，但检测到 'Manage' 按钮。正在尝试进入服务器详情页...")
                 manage_btn.click()
                 page.wait_for_timeout(5000)  # 等待详情页/控制台加载
+                is_in_detail_page = True
                 
                 # 重新保存一张进入详情页后的截图方便排查
                 page.screenshot(path="debug_detail_page.png", full_page=True)
@@ -94,23 +96,59 @@ def run(playwright):
                 # 重新获取详情页里的续期按钮
                 renew_buttons = page.locator(", ".join(target_selectors))
                 count = renew_buttons.count()
+        else:
+            # 如果在列表页就有点到续期，点完后我们需要主动进一下详情页去启动服务器
+            pass
 
+        # 执行续期点击
+        renew_clicked = False
         if count == 0:
-            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到任何续期按钮。可能还未到允许续期的系统时间（到期前2小时内），或页面结构发生大变动。"
-            print("未找到续期按钮。")
+            print("未找到任何续期按钮。可能还未到允许续期的系统时间（到期前2小时内）。")
+            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到任何续期按钮。可能还未到允许续期的系统时间。"
         else:
             print(f"找到 {count} 个续期元素，准备点击...")
-            clicked_count = 0
             for i in range(count):
                 button = renew_buttons.nth(i)
                 if button.is_visible():
                     button.click()
-                    clicked_count += 1
+                    renew_clicked = True
                     print(f"已点击第 {i+1} 个续期按钮。")
-                    page.wait_for_timeout(5000)  # 点击后多等一会确保续期请求处理完毕
+                    page.wait_for_timeout(5000)
+            status_message = f"✅ *ACLClouds 自动续期成功*\n已成功点击续期按钮！"
+
+        # 如果刚才没有进详情页，但现在我们需要去检查服务器启动状态，就进一下详情页
+        if not is_in_detail_page:
+            manage_btn = page.locator("button:has-text('Manage'), a:has-text('Manage'), button:has-text('管理'), a:has-text('管理')").first
+            if manage_btn.is_visible():
+                manage_btn.click()
+                page.wait_for_timeout(5000)
+                is_in_detail_page = True
+
+        # ---- 核心新增：自动检测并点击 Start 按钮 ----
+        if is_in_detail_page:
+            print("正在检查服务器运行状态...")
+            # 兼容多语言的 Start 按钮定位器
+            start_selectors = [
+                "button:has-text('Start')", "a:has-text('Start')",
+                "button:has-text('Démarrer')", "a:has-text('Démarrer')", # 法语的启动
+                "button:has-text('启动')", "a:has-text('启动')"
+            ]
+            start_btn = page.locator(", ".join(start_selectors)).first
             
-            page.screenshot(path="debug_page_after_click.png", full_page=True)
-            status_message = f"✅ *ACLClouds 自动续期成功*\n检测到 {count} 个续期元素，已成功点击 {clicked_count} 个按钮！"
+            # 只有当 Start 按钮存在且可见时（代表当前是 Offline 状态），才去点它
+            if start_btn.is_visible():
+                print("检测到服务器当前处于离线状态，正在尝试点击 'Start' 启动服务器...")
+                start_btn.click()
+                print("已点击启动按钮，等待10秒让服务器拉起...")
+                page.wait_for_timeout(10000) # 多等一会让服务器开机
+                
+                page.screenshot(path="debug_after_start.png", full_page=True)
+                status_message += "\n🚀 *服务器启动状态*: 检测到离线，已自动点击 `Start` 启动服务器！"
+            else:
+                print("未检测到 'Start' 按钮，服务器可能已经在运行中 (Online)。")
+                status_message += "\nℹ️ *服务器启动状态*: 未检测到开机按钮，服务器可能已经在运行中。"
+        else:
+            status_message += "\n⚠️ *服务器启动状态*: 无法进入详情页，跳过开机检查。"
 
         print("任务执行完毕。")
 
