@@ -38,7 +38,7 @@ def run(playwright):
 
     raw_cookies = os.environ.get('ACL_COOKIES', '')
     if not raw_cookies:
-        msg = "❌ *ACLClouds 自动续期失败*\n原因: 未找到 `ACL_COOKIES` 环境变量。"
+        msg = "❌ *ACLClouds 自动任务失败*\n原因: 未找到 `ACL_COOKIES` 环境变量。"
         print(msg)
         send_telegram_notification(msg)
         return
@@ -58,84 +58,74 @@ def run(playwright):
     page = context.new_page()
 
     status_message = ""
-    
     try:
         print("正在访问项目面板...")
         page.goto("https://dash.aclclouds.com/projects", timeout=60000)
         
+        # 等待前端加载
         page.wait_for_timeout(5000)
 
-        print("正在保存页面截图以供排查...")
-        page.screenshot(path="debug_page.png", full_page=True)
-        print("截图保存成功: debug_page.png")
+        print("正在保存页面初始截图...")
+        page.screenshot(path="debug_page_initial.png", full_page=True)
 
-        # 1. 寻找并点击续期按钮（严格精确匹配多语言文本）
-        print("正在寻找续期按钮...")
-        renew_texts = ["Renew", "Renouveler maintenant", "续期"]
-        renew_clicked = False
+        # ================= 逻辑 1：检查并处理【续期 Renew】按钮 =================
+        renew_buttons = page.locator("button", has_text="Renew")
+        renew_count = renew_buttons.count()
+        clicked_renew = 0
+
+        if renew_count > 0:
+            print(f"发现 {renew_count} 个续期按钮，正在检查...")
+            for i in range(renew_count):
+                btn = renew_buttons.nth(i)
+                if btn.is_visible() and btn.is_enabled():
+                    btn.click(timeout=5000)
+                    clicked_renew += 1
+                    print(f"已点击第 {i+1} 个 Renew 按钮进行续期。")
+                    page.wait_for_timeout(3000)
+
+        # ================= 逻辑 2：检查并处理【启动 Start】按钮（保活） =================
+        start_buttons = page.locator("button", has_text="Start")
+        start_count = start_buttons.count()
+        clicked_start = 0
+        skipped_start = 0
+
+        if start_count > 0:
+            print(f"发现 {start_count} 个 Start 按钮，正在检查状态...")
+            for i in range(start_count):
+                btn = start_buttons.nth(i)
+                if btn.is_visible():
+                    if btn.is_enabled():
+                        # 按钮可用：说明服务器处于停止状态，需要拉起
+                        print(f"第 {i+1} 个 Start 按钮可点击，检测到服务器已关机，正在尝试拉起...")
+                        btn.click(timeout=10000)
+                        clicked_start += 1
+                        page.wait_for_timeout(3000)
+                    else:
+                        # 按钮禁用：说明服务器正在运行，不用管它
+                        skipped_start += 1
+                        print(f"第 {i+1} 个 Start 按钮处于禁用状态（保持启动中），安全跳过。")
+
+        # 最终截图留存
+        page.screenshot(path="debug_page_final.png", full_page=True)
+
+        # ================= 逻辑 3：组织无论成功/失败都发送的飞机通知 =================
+        log_summary = []
+        if clicked_renew > 0:
+            log_summary.append(f"🔄 成功续期项目数: {clicked_renew}")
+        if clicked_start > 0:
+            log_summary.append(f"🚀 检测到关机，已成功拉起服务数: {clicked_start}")
+        if skipped_start > 0:
+            log_summary.append(f"🟢 正常运行中（无需操作）的服务数: {skipped_start}")
         
-        for txt in renew_texts:
-            loc = page.get_by_text(txt, exact=True)
-            count = loc.count()
-            if count > 0:
-                print(f"找到 {count} 个精确文本为 '{txt}' 的续期元素，准备点击...")
-                for i in range(count):
-                    btn = loc.nth(i)
-                    if btn.is_visible():
-                        btn.click()
-                        renew_clicked = True
-                        print(f"已点击第 {i+1} 个续期按钮。")
-                        page.wait_for_timeout(5000)  # 等待请求处理
-
-        if renew_clicked:
-            status_message = "✅ *ACLClouds 自动续期成功*\n已成功点击续期按钮！"
+        if not log_summary:
+            status_message = "⚠️ *ACLClouds 自动化任务提醒*\n未检测到任何需要操作的续期或启动按钮。"
         else:
-            print("当前页面未点到续期按钮（可能还未到续期时间）。")
-            status_message = "⚠️ *ACLClouds 自动续期提醒*\n未找到或未触发任何续期按钮。"
+            status_message = "✅ *ACLClouds 自动化检查完毕*\n" + "\n".join(log_summary)
 
-        # 2. 尝试点击 Manage 按钮进入详情控制台
-        #（如果上面点过续期，页面可能会刷新或跳转；如果没点过，我们也需要点 Manage 进去检查开机状态）
-        print("正在尝试定位进入详情页的 Manage 按钮...")
-        manage_texts = ["Manage", "管理"]
-        for txt in manage_texts:
-            loc = page.get_by_text(txt, exact=True)
-            if loc.count() > 0 and loc.first.is_visible():
-                print(f"检测到精确匹配的 '{txt}' 按钮，正在点击进入服务器详情页...")
-                loc.first.click()
-                page.wait_for_timeout(5000)  # 等待控制台页面完全加载
-                break
-
-        # 保存一张当前的最终页面状态截图
-        page.screenshot(path="debug_final_state.png", full_page=True)
-
-        # 3. 核心修复：精准检测并点击真正的 Start 按钮（完美避开 Startup 侧边栏）
-        print("正在检查服务器运行状态...")
-        start_texts = ["Start", "Démarrer", "启动"]
-        start_btn = None
-        
-        for txt in start_texts:
-            loc = page.get_by_text(txt, exact=True)
-            if loc.count() > 0 and loc.first.is_visible():
-                start_btn = loc.first
-                break
-
-        if start_btn:
-            print("检测到服务器当前处于离线状态，正在尝试点击精准的 'Start' 按钮...")
-            start_btn.click()
-            print("已点击启动按钮，等待 15 秒让服务器拉起...")
-            page.wait_for_timeout(15000)
-            
-            # 再次保存开机成功后的控制台截图
-            page.screenshot(path="debug_after_start.png", full_page=True)
-            status_message += "\n🚀 *服务器启动状态*: 检测到离线，已成功精准点击 `Start` 启动服务器！"
-        else:
-            print("当前页面未检测到可见的开机按钮，服务器可能已经在运行中 (Online)。")
-            status_message += "\nℹ️ *服务器启动状态*: 未检测到开机按钮，服务器可能已经在运行中。"
-
-        print("任务执行完毕。")
+        print("任务全面执行完毕。")
 
     except Exception as e:
-        status_message = f"❌ *ACLClouds 自动续期运行出错*\n错误信息: `{str(e)}`"
+        status_message = f"❌ *ACLClouds 自动续期运行出错*\n错误原因: `{str(e)}`"
         print(status_message)
         try:
             page.screenshot(path="error_page.png", full_page=True)
@@ -143,7 +133,7 @@ def run(playwright):
             pass
     finally:
         browser.close()
-        # 最终发送通知
+        # 无论前面发生了什么，这里都会向飞机发通知
         if status_message:
             send_telegram_notification(status_message)
 
