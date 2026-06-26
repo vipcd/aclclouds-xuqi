@@ -60,99 +60,89 @@ def run(playwright):
 
     status_message = ""
     try:
-        print("正在访问项目面板...")
+        print("正在访问项目列表面...")
         page.goto("https://dash.aclclouds.com/projects", timeout=60000)
-        
-        # 等待前端页面渲染
-        page.wait_for_timeout(6000)
+        page.wait_for_timeout(6000) # 等待页面充分加载
 
-        print("正在保存页面初始截图...")
-        page.screenshot(path="debug_page_1_initial.png", full_page=True)
+        print("保存列表页初始截图...")
+        page.screenshot(path="debug_1_projects_list.png", full_page=True)
 
         log_summary = []
 
-        # ================= 🚀 第一步：处理全屏挂起拦截（大蓝按钮） =================
+        # ================= 阶段 1：处理全屏挂起拦截（大蓝按钮） =================
         suspended_btn = page.locator('button, a').filter(has_text=re.compile(r"Renouveler maintenant|Renew now", re.IGNORECASE))
-        
         if suspended_btn.count() > 0 and suspended_btn.first.is_visible():
             print("🚨 状态判定：检测到全屏挂起拦截弹窗！正在点击大蓝按钮...")
             if suspended_btn.first.is_enabled():
                 suspended_btn.first.click(timeout=10000)
                 log_summary.append("⚠️ 检测到服务被动挂起，已点击大蓝按钮解锁")
-                print("大蓝按钮点击成功，等待页面跳转到列表...")
-                page.wait_for_timeout(6000)  # 给充足时间让页面刷新到列表页
-                page.screenshot(path="debug_page_2_after_blue_click.png", full_page=True)
-        else:
-            print("🟢 状态判定：未检测到全屏挂起弹窗。")
+                page.wait_for_timeout(6000) # 等待页面刷新跳转回列表
+                page.screenshot(path="debug_2_after_blue_button.png", full_page=True)
 
-        # ================= 🚀 第二步：处理列表页面的【Reactivate】黄/橙色按钮 =================
+        # ================= 阶段 2：处理列表页面的【Reactivate】重新激活按钮 =================
         reactivate_buttons = page.locator('button, a').filter(has_text=re.compile(r"Reactivate", re.IGNORECASE))
-        reactivate_count = reactivate_buttons.count()
-        clicked_reactivate = 0
-
-        if reactivate_count > 0:
-            print(f"⚡ 状态判定：在列表中发现 {reactivate_count} 个需要重新激活的 Reactivate 按钮！")
-            for i in range(reactivate_count):
+        if reactivate_buttons.count() > 0:
+            print(f"⚡ 状态判定：发现需要激活的 Reactivate 按钮！")
+            for i in range(reactivate_buttons.count()):
                 btn = reactivate_buttons.nth(i)
                 if btn.is_visible() and btn.is_enabled():
                     btn.click(timeout=10000)
-                    clicked_reactivate += 1
-                    print(f"已成功点击第 {i+1} 个 Reactivate 按钮进行激活。")
-                    page.wait_for_timeout(6000)  # 激活可能需要后台处理，多等一会儿
-            if clicked_reactivate > 0:
-                log_summary.append(f"⚡ 成功点击 Reactivate 按钮重新激活服务: {clicked_reactivate} 个")
-                page.screenshot(path="debug_page_3_after_reactivate.png", full_page=True)
+                    log_summary.append("⚡ 成功点击 Reactivate 按钮重新激活服务")
+                    page.wait_for_timeout(6000) # 激活需要后台处理时间
+            page.screenshot(path="debug_3_after_reactivate.png", full_page=True)
 
-        # ================= 🚀 第三步：处理常规控制台下的【提前续期】小按钮（最后2小时安全期） =================
-        renew_buttons = page.locator("button").filter(has_text=re.compile(r"^(Renew|Renouveler)$", re.IGNORECASE))
-        renew_count = renew_buttons.count()
-        clicked_renew = 0
-
-        if renew_count > 0:
-            print(f"发现 {renew_count} 个常规续期小按钮，正在检查...")
-            for i in range(renew_count):
-                btn = renew_buttons.nth(i)
+        # ================= 阶段 3：常规列表页续期检查（防止6小时到期前2小时的续期按钮在列表显示） =================
+        renew_list_buttons = page.locator("button").filter(has_text=re.compile(r"^(Renew|Renouveler)$", re.IGNORECASE))
+        if renew_list_buttons.count() > 0:
+            for i in range(renew_list_buttons.count()):
+                btn = renew_list_buttons.nth(i)
                 if btn.is_visible() and btn.is_enabled():
                     btn.click(timeout=5000)
-                    clicked_renew += 1
-                    print(f"已点击第 {i+1} 个常规续期按钮。")
+                    log_summary.append("🔄 列表页常规窗口提前续期成功")
                     page.wait_for_timeout(3000)
-            if clicked_renew > 0:
-                log_summary.append(f"🔄 常规窗口提前续期成功: {clicked_renew} 个服务")
 
-        # ================= 🚀 第四步：统一检查并点亮【Start 启动】按钮 =================
-        start_buttons = page.locator('button[data-variant="start"], button').filter(has_text=re.compile(r"^Start$", re.IGNORECASE))
-        start_count = start_buttons.count()
-        clicked_start = 0
-        skipped_start = 0
+        # ================= 阶段 4【关键核心】：点击 Manage 进入控制台内部 =================
+        manage_buttons = page.locator('button, a').filter(has_text=re.compile(r"Manage", re.IGNORECASE))
+        if manage_buttons.count() > 0:
+            print("🔍 正在点击 Manage 按钮进入服务器内部控制台...")
+            manage_buttons.first.click(timeout=10000)
+            page.wait_for_timeout(6000) # 等待控制台页面完全加载
+            print("已成功进入控制台内部，保存控制台截图...")
+            page.screenshot(path="debug_4_console_internal.png", full_page=True)
+            
+            # 阶段 4.5：在控制台内部也扫描一次常规续期按钮（以防续期按钮只出现在控制台里）
+            renew_console_buttons = page.locator("button").filter(has_text=re.compile(r"^(Renew|Renouveler)$", re.IGNORECASE))
+            if renew_console_buttons.count() > 0 and renew_console_buttons.first.is_visible() and renew_console_buttons.first.is_enabled():
+                renew_console_buttons.first.click(timeout=5000)
+                log_summary.append("🔄 控制台内常规窗口提前续期成功")
+                page.wait_for_timeout(3000)
 
-        if start_count > 0:
-            print(f"正在扫描页面上的所有启动状态（共 {start_count} 个潜在按钮）...")
-            for i in range(start_count):
-                btn = start_buttons.nth(i)
-                if btn.is_visible():
-                    if btn.is_enabled():
-                        print(f"第 {i+1} 个服务当前处于熄火状态，正在尝试拉起 Start...")
-                        btn.click(timeout=10000)
-                        clicked_start += 1
-                        page.wait_for_timeout(4000)
-                    else:
-                        skipped_start += 1
-                        print(f"第 {i+1} 个服务已在正常运行中（Start按钮变灰不可点），安全跳过。")
-
-        if clicked_start > 0:
-            log_summary.append(f"🚀 成功点亮 Start 启动服务: {clicked_start} 个")
-        if skipped_start > 0:
-            log_summary.append(f"🟢 服务保持在线（无需操作）: {skipped_start} 个")
-
-        # 保存最终执行完的成果截图
-        page.screenshot(path="debug_page_4_final.png", full_page=True)
-
-        # ================= 🚀 第五步：组装并发送飞机通知 =================
-        if not log_summary:
-            status_message = "⚠️ *ACLClouds 自动化任务提醒*\n未检测到任何需要处理的挂起弹窗、激活按钮或到期续期项目，服务均在安全运行中。"
+            # ================= 阶段 5：在控制台内部统一检查并点亮【Start 启动】按钮 =================
+            # 精准匹配绿色的 Start 按钮
+            start_buttons = page.locator('button, a').filter(has_text=re.compile(r"Start", re.IGNORECASE))
+            if start_buttons.count() > 0 and start_buttons.first.is_visible():
+                if start_buttons.first.is_enabled():
+                    print("🚀 检测到服务器处于 Offline 熄火状态，正在点击 Start 启动拉起...")
+                    start_buttons.first.click(timeout=10000)
+                    log_summary.append("🚀 核心保活成功：成功点亮 Start 启动服务！")
+                    page.wait_for_timeout(5000) # 等待启动命令下发
+                else:
+                    print("🟢 服务器已经在正常运行中（Start按钮当前不可点），安全跳过。")
+                    log_summary.append("🟢 服务保持在线（无需运行启动）")
+            else:
+                print("⚠️ 未在控制台页面找到 Start 按钮，请检查控制台权限或结构。")
         else:
-            status_message = "✅ *ACLClouds 自动化轮询完毕*\n" + "\n".join(log_summary)
+            print("❌ 未在项目列表找到 Manage 按钮，无法进入控制台！")
+            log_summary.append("❌ 任务异常：未找到进入控制台的 Manage 按钮")
+
+        # 保存最终完结截图
+        page.screenshot(path="debug_5_final.png", full_page=True)
+
+        # ================= 阶段 6：组装结算通知 =================
+        if not log_summary:
+            status_message = "⚠️ *ACLClouds 自动化任务提醒*\n未检测到任何需要处理的异常，服务均在安全运行中。"
+        else:
+            status_message = "✅ *ACLClouds 自动化闭环运行完毕*\n" + "\n".join(log_summary)
 
         print("整个复合自动化任务顺利结束。")
 
@@ -165,7 +155,6 @@ def run(playwright):
             pass
     finally:
         browser.close()
-        # 无论前面哪个步骤报错或者成功，这里都会雷打不动地给飞机发通知
         if status_message:
             send_telegram_notification(status_message)
 
