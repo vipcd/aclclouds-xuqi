@@ -116,11 +116,12 @@ def run(playwright):
                 print("💡 平台未开新页，单页应用原地路由切换。")
 
             # ================= 阶段 5：智能死等并精准点击 Start 按钮 =================
-            start_button_locator = page.locator('button, a').filter(has_text=re.compile(r"Start", re.IGNORECASE)).first
+            # 【核心修复】：使用 \b 限定边界，防止误点侧边栏的 Startup 标签
+            start_button_locator = page.locator('button, a').filter(has_text=re.compile(r"\bStart\b", re.IGNORECASE)).first
             
             # 1. 严格隔离等待逻辑
             try:
-                print("⏳ [关键步骤] 正在高频检索并等待 Start 按钮渲染到屏幕上...")
+                print("⏳ [关键步骤] 正在高频检索并等待真实的 Start 按钮渲染到屏幕上...")
                 start_button_locator.wait_for(state="visible", timeout=25000)
                 print("🎯 [成功] 终于在控制台页面抓到了动态渲染出来的 Start 按钮！")
             except Exception as wait_err:
@@ -169,7 +170,6 @@ def run(playwright):
         print("整个复合自动化任务顺利结束。")
 
     except Exception as e:
-        # 如果是已知处理过的等待报错，不再重复覆盖大日志
         if "在控制台页面没等到 Start 按钮出现" in str(log_summary):
             status_message = "❌ *ACLClouds 自动续期运行失败*\n错误原因: `未等到 Start 按钮出现`"
         else:
