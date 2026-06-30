@@ -2,12 +2,17 @@ name: ACLClouds Auto Renew
 
 on:
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: '16 */3 * * *'
   workflow_dispatch:
 
 jobs:
   renew-job:
     runs-on: ubuntu-latest
+    # 赋予工作流删除历史运行记录的权限
+    permissions:
+      actions: write
+      contents: read
+      
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -38,3 +43,13 @@ jobs:
           name: Debug-Screenshots
           path: "*.png" # 上传所有生成的 png 图片
           retention-days: 5 # 截图保留 5 天
+
+      # 新增步骤：自动清理超过 2 天的旧运行记录
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        if: always() # 无论前面的脚本是成功还是失败，都会执行清理
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 2
+          keep_minimum_runs: 0
