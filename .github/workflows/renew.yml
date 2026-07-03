@@ -14,19 +14,17 @@ jobs:
       contents: read
       
     steps:
-      # 1. 拉取当前的公共仓库（包含此工作流所在的仓库）
+      # 1. 拉取当前的公共仓库
       - name: Checkout Public Repository
         uses: actions/checkout@v4
 
-      # 2. 核心步骤：拉取存放私密脚本的私有仓库
+      # 2. 拉取存放私密脚本的私有仓库
       - name: Checkout Private Repository
         uses: actions/checkout@v4
         with:
-          # 👇【请将此处替换为您真实的：GitHub用户名/私有仓库名】
-          repository: 'vipcd/zhuanshu-jiaoben' 
-          # 👇 使用存放在公共仓库 Secrets 中的 PAT 令牌进行鉴权
+          # 👇【注意：请记得将此处保持为您真实的：GitHub用户名/私有仓库名】
+          repository: 'YOUR_GITHUB_USERNAME/YOUR_PRIVATE_REPO_NAME' 
           token: ${{ secrets.PAT_FOR_PRIVATE_REPO }}
-          # 👇 将私库的代码克隆到单独的子独立文件夹中，避免污染根目录
           path: private_code
 
       - name: Set up Python
@@ -40,16 +38,15 @@ jobs:
           pip install playwright
           playwright install chromium
 
-      # 3. 运行私库中指定更名后的脚本
+      # 3. 运行私库中命名前缀加上 aclclouds 的核心脚本
       - name: Run Renew Script
         env:
           ACL_COOKIES: ${{ secrets.ACL_COOKIES }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # 👇 路径指定为私库克隆目录下的新脚本名
         run: python private_code/aclclouds_renew.py
 
-      # 将生成的截图上传到 GitHub Actions 页面（脚本运行时截图仍会生成在根目录下）
+      # 将生成的截图上传到 GitHub Actions 页面
       - name: Upload Screenshot
         uses: actions/upload-artifact@v4
         if: always() 
@@ -58,12 +55,12 @@ jobs:
           path: "*.png" 
           retention-days: 5 
 
-      # 自动清理超过 2 天的旧运行记录
+      # 【核心修改步骤】：由保留天数改为“始终只保留最新的 2 条历史记录”
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
-        if: always()
+        if: always() # 无论成功或失败，都执行清理
         with:
           token: ${{ github.token }}
           repository: ${{ github.repository }}
-          retain_days: 2
-          keep_minimum_runs: 0
+          retain_days: 0           # 设为 0，代表不以时间为过滤条件
+          keep_minimum_runs: 2     # 强制彻底清理，有且仅保留最新 2 条记录
