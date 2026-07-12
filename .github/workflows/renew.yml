@@ -2,7 +2,7 @@ name: ACLClouds Auto Renew
 
 on:
   schedule:
-    - cron: '16 2 */2 * *'
+    - cron: '16 */4 * * *'
   workflow_dispatch:
 
 jobs:
