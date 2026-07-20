@@ -43,9 +43,22 @@ jobs:
       - name: Run Renew Script
         env:
           ACL_COOKIES: ${{ secrets.ACL_COOKIES }}
+          ACL_EMAIL: ${{ secrets.ACL_EMAIL }}
+          ACL_USERNAME: ${{ secrets.ACL_USERNAME }}
+          ACL_PASSWORD: ${{ secrets.ACL_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python private_code/aclclouds_renew.py
+
+      # 账号密码重登成功后，安全回写新的 Cookie。
+      - name: Update refreshed ACL cookie secret
+        if: ${{ hashFiles('refreshed_cookies.txt') != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PAT_FOR_PRIVATE_REPO }}
+        run: |
+          gh secret set ACL_COOKIES --repo "${{ github.repository }}" --body-file refreshed_cookies.txt
+          rm -f refreshed_cookies.txt
+          echo "ACL_COOKIES secret updated safely."
 
       # 将生成的截图上传到 GitHub Actions 页面
       - name: Upload Screenshot
